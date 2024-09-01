@@ -110,6 +110,8 @@ typedef struct pm_internal_struct {
     short is_removed;  /* MIDI device was removed */
     PmTimeProcPtr time_proc; /* where to get the time */
     void *time_info; /* pass this to get_time() */
+    PmInputCallbackProcPtr input_callback_proc;  /* called immediately when a MIDI event is received */
+    void* input_callback_info;  /* passed to input_callback_proc */
     int32_t buffer_len; /* how big is the buffer or queue? */
     PmQueue *queue;
 

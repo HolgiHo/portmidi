@@ -587,6 +587,9 @@ static void FAR PASCAL winmm_in_callback(
             pm_read_short(midi, &event);
         }
         LeaveCriticalSection(&info->lock);
+
+        if (midi->input_callback_proc)
+            midi->input_callback_proc(midi->input_callback_info);
         break;
     }
     case MIM_LONGDATA: {
@@ -629,6 +632,9 @@ static void FAR PASCAL winmm_in_callback(
             LeaveCriticalSection(&info->lock);
             pm_free(lpMidiHdr);
         }
+
+        if (midi->input_callback_proc)
+            midi->input_callback_proc(midi->input_callback_info);
         break;
     }
     case MIM_OPEN:

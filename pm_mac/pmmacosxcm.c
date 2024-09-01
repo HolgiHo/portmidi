@@ -315,6 +315,9 @@ static void read_callback(const MIDIPacketList *newPackets, PmInternal *midi)
         pm_read_bytes(midi, packet->data, packet->length, timestamp);
         packet = MIDIPacketNext(packet);
     }
+
+    if (midi->input_callback_proc)
+        midi->input_callback_proc(midi->input_callback_info);
 }
 
 /* callback for real devices - redirects to read_callback */

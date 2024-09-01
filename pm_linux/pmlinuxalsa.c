@@ -58,7 +58,18 @@ typedef struct alsa_info_struct {
     int this_port;
     int in_sysex;
     snd_midi_event_t *parser;
+
+    /* polling thread for immediate callback when receiving MIDI input event */
+    int poll_thread_created;
+    pthread_t poll_thread_pid;
+    int poll_nfd;
+    struct pollfd* poll_fd;
+    pthread_mutex_t poll_mutex;
+
 } alsa_info_node, *alsa_info_type;
+
+/* procedure called immediately when receiving MIDI input event */
+static void* alsa_poll_thread_proc(void* p);
 
 
 /* get_alsa_error_text -- copy error text to potentially short string */
@@ -393,6 +404,12 @@ static PmError alsa_in_open(PmInternal *midi, void *driverInfo)
     if (!ainfo) return pmInsufficientMemory;
     midi->api_info = ainfo;
 
+    desc->poll_thread_created = FALSE;
+    desc->poll_nfd = 0;
+    desc->poll_fd = NULL;
+    if (pthread_mutex_init(&desc->poll_mutex, NULL) != 0)
+        return pmInternalError;    /* error initializing mutex */
+
     err = alsa_use_queue();
     if (err < 0) goto free_ainfo;
 
@@ -446,6 +463,26 @@ static PmError alsa_in_open(PmInternal *midi, void *driverInfo)
 
     maybe_set_client_name(driverInfo);
 
+    if (midi->input_callback_proc)
+    {
+        /* get poll descriptors */
+        desc->poll_nfd = snd_seq_poll_descriptors_count(seq, POLLIN);
+        desc->poll_fd = (struct pollfd*)pm_alloc(desc->poll_nfd * sizeof(struct pollfd));
+        if (!desc->poll_fd) return pmInsufficientMemory;
+        snd_seq_poll_descriptors(seq, desc->poll_fd, desc->poll_nfd, POLLIN);
+
+        if (pthread_create(&desc->poll_thread_pid, NULL, alsa_poll_thread_proc, midi) != 0)
+        {
+            /* error creating thread */
+            snd_seq_delete_port(seq, desc->this_port);
+            alsa_unuse_queue();
+            pm_free(desc);
+            return pmInternalError;
+        }
+
+        desc->poll_thread_created = TRUE;
+    }
+
     return pmNoError;
  free_this_port:
     snd_seq_delete_port(seq, ainfo->this_port);
@@ -461,6 +498,19 @@ static PmError alsa_in_close(PmInternal *midi)
     int err = 0;
     alsa_info_type info = (alsa_info_type) midi->api_info;
     if (!info) return pmBadPtr;
+
+    if (desc->poll_thread_created)
+    {
+        pthread_cancel(desc->poll_thread_pid);
+        pthread_join(desc->poll_thread_pid, NULL);
+
+        pm_free(desc->poll_fd);
+        desc->poll_fd = NULL;
+
+        desc->poll_thread_created = FALSE;
+    }
+    pthread_mutex_destroy(&desc->poll_mutex);
+
     /* virtual ports stay open because the represent devices */
     if (!info->is_virtual && info->this_port != PORT_IS_CLOSED) {
         err = snd_seq_delete_port(seq, info->this_port);
@@ -731,6 +781,11 @@ static PmError alsa_poll(PmInternal *midi)
     if (!midi) {
         return pmBadPtr;
     }
+
+    /* alsa_poll is called also from alsa_poll_thread_proc, so use a mutex */
+    alsa_descriptor_type desc = (alsa_descriptor_type)midi->descriptor;
+    pthread_mutex_lock(&desc->poll_mutex);
+
     snd_seq_event_t *ev;
     /* expensive check for input data, gets data from device: */
     while (snd_seq_event_input_pending(seq, TRUE) > 0) {
@@ -758,9 +813,32 @@ static PmError alsa_poll(PmInternal *midi)
             }
         }
     }
+
+    pthread_mutex_unlock(&desc->poll_mutex);
     return pmNoError;
 }
 
+static void* alsa_poll_thread_proc(void* p)
+{
+    PmInternal* midi = (PmInternal*)p;
+    if (!midi->input_callback_proc) return NULL;
+
+    alsa_descriptor_type desc = (alsa_descriptor_type)midi->descriptor;
+    if (!desc) return NULL;
+
+    /* poll with an infinite timeout */
+    /* thread will be cancelled by pthread_cancel in alsa_in_close() */
+    while (poll(desc->poll_fd, desc->poll_nfd, -1) > 0)
+    {
+        /* read all events so poll() will not return immediately again */
+        alsa_poll(midi);
+
+        /* do actual callback */
+        midi->input_callback_proc(midi->input_callback_info);
+    }
+
+    return NULL;
+}
 
 static unsigned int alsa_check_host_error(PmInternal *midi)
 {

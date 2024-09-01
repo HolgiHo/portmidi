@@ -338,6 +338,10 @@ PMEXPORT PmDeviceID Pm_FindDevice(char *pattern, int is_input);
 typedef int32_t PmTimestamp;
 typedef PmTimestamp (*PmTimeProcPtr)(void *time_info);
 
+/** Function pointer type for immediate callback on receiving a MIDI input event.
+*/
+typedef void (*PmInputCallbackProcPtr)(void *input_callback_info);
+
 /** TRUE if t1 before t2 */
 #define PmBefore(t1,t2) (((t1)-(t2)) < 0)
 /** @} */
@@ -391,6 +395,11 @@ PMEXPORT const PmDeviceInfo *Pm_GetDeviceInfo(PmDeviceID id);
     timestamps.
 
     @param time_info is a pointer passed to time_proc.
+    
+    @param input_callback_proc (address of) a procedure that is called
+    immediately when a MIDI input event is received.
+
+    @param input_callback_info is a pointer passed to input_callback_proc.
 
     @return #pmNoError and places a pointer to a valid
     #PortMidiStream in the stream argument.  If the open operation
@@ -405,7 +414,9 @@ PMEXPORT PmError Pm_OpenInput(PortMidiStream** stream,
                 void *inputSysDepInfo,
                 int32_t bufferSize,
                 PmTimeProcPtr time_proc,
-                void *time_info);
+                void *time_info,
+                PmInputCallbackProcPtr input_callback_proc,
+                void *input_callback_info);
 
 /** Open a MIDI device for output.
 

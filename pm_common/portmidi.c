@@ -877,7 +877,9 @@ end_of_sysex:
 
 PmError pm_create_internal(PmInternal **stream, PmDeviceID device_id,
                            int is_input, int latency, PmTimeProcPtr time_proc,
-                           void *time_info, int buffer_size)
+                           void *time_info, int buffer_size,
+                           PmInputCallbackProcPtr input_callback_proc,
+                           void *input_callback_info)
 {
     PmInternal *midi;
     if (device_id < 0 || device_id >= pm_descriptor_len) {
@@ -906,6 +908,8 @@ PmError pm_create_internal(PmInternal **stream, PmDeviceID device_id,
         midi->time_proc = (PmTimeProcPtr) Pt_Time;
     }
     midi->time_info = time_info;
+    midi->input_callback_proc = input_callback_proc;
+    midi->input_callback_info = input_callback_info;
     if (is_input) {
         midi->latency = 0;  /* unused by input */
         if (buffer_size <= 0) buffer_size = 256; /* default buffer size */
@@ -946,7 +950,9 @@ PMEXPORT PmError Pm_OpenInput(PortMidiStream** stream,
                               void *inputDriverInfo,
                               int32_t bufferSize,
                               PmTimeProcPtr time_proc,
-                              void *time_info)
+                              void *time_info,
+                              PmInputCallbackProcPtr input_callback_proc,
+                              void *input_callback_info)
 {
     PmInternal *midi;
     PmError err = pmNoError;
@@ -963,7 +969,8 @@ PMEXPORT PmError Pm_OpenInput(PortMidiStream** stream,
 
     /* common initialization of PmInternal structure (midi): */
     err = pm_create_internal(&midi, inputDevice, TRUE, 0, time_proc,
-                             time_info, bufferSize);
+                             time_info, bufferSize, input_callback_proc,
+                             input_callback_info);
     *stream = midi;
     if (err) {
         goto error_return;
@@ -1015,7 +1022,7 @@ PMEXPORT PmError Pm_OpenOutput(PortMidiStream** stream,
 
     /* common initialization of PmInternal structure (midi): */
     err = pm_create_internal(&midi, outputDevice, FALSE, latency, time_proc,
-                             time_info, bufferSize);
+                             time_info, bufferSize, NULL, NULL);
     *stream = midi;
     if (err) {
         goto error_return;
